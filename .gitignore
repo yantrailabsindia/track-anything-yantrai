@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+dist/
+build/
+*.exe
+*.spec
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Data & Secrets
+.env
+data/
+credentials/
+*.db
+*.jsonl
+*.log
+
+# Project specific
+prome.tar.gz
+prome_app.tar
+pwa/
+14_inuse_cctv_windows_app_streamer/
+PMIS_V2/
+
+# IDE & OS
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
