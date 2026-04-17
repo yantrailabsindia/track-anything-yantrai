@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { 
   fetchStats, fetchActivity, fetchScreenshots, fetchUsers, createUser, 
-  getUser, clearAuth, downloadAgent, checkDownloadAvailable, fetchOrganizationDetails,
+  getUser, clearAuth, downloadWindowsAgent, checkDownloadAvailable, fetchOrganizationDetails,
   fetchMyInvites, acceptInvite, declineInvite, sendInvite
 } from "../../lib/api";
 import {
@@ -290,7 +290,7 @@ function DashboardContent() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, flex: 1, overflow: "hidden" }}>
               {dashboardData.screenshots.slice(0, 4).map((shot) => (
                 <div key={shot.filename} onClick={() => setSelectedScreenshot(shot)} style={{ position: "relative", overflow: "hidden", borderRadius: 12, border: "1px solid rgba(255,255,255,0.05)", aspectRatio: "16/10", background: "rgba(255,255,255,0.02)", cursor: "pointer", transition: "all 0.2s", transform: "scale(1)" }} onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.02)")} onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}>
-                  <img src={`http://localhost:8765${shot.url}`} alt="Capture" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <img src={`${shot.url}`} alt="Capture" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 </div>
               ))}
               {dashboardData.screenshots.length === 0 && <div style={{ gridColumn: "1/3", display: "flex", alignItems: "center", justifyContent: "center", color: "#475569" }}>No snapshots yet.</div>}
@@ -371,7 +371,7 @@ function DashboardContent() {
               {dashboardData.downloadAvailable ? "Distribute this installer to employees." : "Build not available. Run PyInstaller to generate the .exe."}
             </p>
           </div>
-          <button className="btn-primary" onClick={downloadAgent} disabled={!dashboardData.downloadAvailable} style={{ display: "flex", alignItems: "center", gap: 8, opacity: dashboardData.downloadAvailable ? 1 : 0.4 }}>
+          <button className="btn-primary" onClick={downloadWindowsAgent} disabled={!dashboardData.downloadAvailable} style={{ display: "flex", alignItems: "center", gap: 8, opacity: dashboardData.downloadAvailable ? 1 : 0.4 }}>
             <Download size={18} /> {dashboardData.downloadAvailable ? "Download .exe" : "Not Available"}
           </button>
         </div>
@@ -460,7 +460,7 @@ function DashboardContent() {
           <div onClick={() => setSelectedScreenshot(null)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, cursor: "pointer" }}>
             <div onClick={e => e.stopPropagation()} style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh", cursor: "default" }}>
               <button onClick={() => setSelectedScreenshot(null)} style={{ position: "absolute", top: -40, right: 0, background: "none", border: "none", color: "#fff", fontSize: 24, cursor: "pointer" }}>✕</button>
-              <img src={`http://localhost:8765${selectedScreenshot.url}`} alt="Full screenshot" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)" }} />
+              <img src={`${selectedScreenshot.url}`} alt="Full screenshot" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)" }} />
               <div style={{ marginTop: 12, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>
                 {new Date(selectedScreenshot.timestamp).toLocaleString()}
               </div>
