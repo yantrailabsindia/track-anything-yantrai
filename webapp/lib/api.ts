@@ -376,14 +376,27 @@ export async function fetchCCTVFeed(cameraId: string): Promise<{ snapshot_id: nu
   return res.json();
 }
 
-export async function fetchCCTVSnapshots(cameraId?: string, locationId?: string, date?: string) {
+export async function fetchCCTVSnapshots(
+  cameraIdOrFilters?: string | { camera_id?: string; location_id?: string; date?: string },
+  locationId?: string,
+  date?: string
+) {
   const params = new URLSearchParams();
   const user = getUser();
   if (user?.org_id) params.set("org_id", user.org_id);
-  if (cameraId) params.set("camera_id", cameraId);
-  if (locationId) params.set("location_id", locationId);
-  if (date) params.set("date", date);
-  params.set("limit", "50");
+
+  // Support both object and individual parameter calling conventions
+  if (typeof cameraIdOrFilters === "object" && cameraIdOrFilters !== null) {
+    if (cameraIdOrFilters.camera_id) params.set("camera_id", cameraIdOrFilters.camera_id);
+    if (cameraIdOrFilters.location_id) params.set("location_id", cameraIdOrFilters.location_id);
+    if (cameraIdOrFilters.date) params.set("date", cameraIdOrFilters.date);
+  } else {
+    if (cameraIdOrFilters) params.set("camera_id", cameraIdOrFilters);
+    if (locationId) params.set("location_id", locationId);
+    if (date) params.set("date", date);
+  }
+
+  params.set("limit", "100");
   const res = await fetch(`${API_BASE_URL}/cctv/snapshots?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to fetch CCTV snapshots");
   return res.json();

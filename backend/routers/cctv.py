@@ -12,7 +12,7 @@ import logging
 from backend.database import get_db
 from backend.models import (
     CameraLocation, Camera, CCTVSnapshot, CCTVAgentRegistration,
-    Organization
+    Organization, User
 )
 
 router = APIRouter()
@@ -60,6 +60,7 @@ class CameraCreate(BaseModel):
 class CameraUpdate(BaseModel):
     name: Optional[str] = None
     snapshot_interval_seconds: Optional[int] = None
+    frame_rate_fps: Optional[int] = None
     jpeg_quality: Optional[int] = None
     resolution_profile: Optional[str] = None
     is_active: Optional[bool] = None
@@ -76,6 +77,7 @@ class CameraResponse(BaseModel):
     manufacturer: Optional[str]
     model: Optional[str]
     snapshot_interval_seconds: int
+    frame_rate_fps: int
     jpeg_quality: int
     resolution_profile: str
     status: str
@@ -90,7 +92,7 @@ class CameraResponse(BaseModel):
 class CCTVSnapshotIngest(BaseModel):
     camera_id: str
     captured_at: datetime
-    username: str
+    user_id: str  # User who captured the frame (webapp user ID)
     image_data: str  # base64-encoded JPEG image
     gcs_path: Optional[str] = None  # Optional for backward compatibility
     file_size_bytes: Optional[int] = None
@@ -211,7 +213,17 @@ def agent_heartbeat(req: AgentHeartbeat, api_key: str = Query(...), db: Session 
             camera.last_seen_at = datetime.utcnow()
 
     db.commit()
-    return {"status": "ok"}
+    
+    # Return latest camera list so agent can sync configuration/FPS changes
+    cameras = db.query(Camera).filter(
+        Camera.org_id == org_id,
+        Camera.is_active == True
+    ).all()
+    
+    return {
+        "status": "ok",
+        "cameras": [CameraResponse.from_orm(cam) for cam in cameras]
+    }
 
 
 @router.post("/locations")
@@ -318,6 +330,11 @@ def update_camera(camera_id: str, req: CameraUpdate, org_id: str = Query(...), d
         camera.name = req.name
     if req.snapshot_interval_seconds is not None:
         camera.snapshot_interval_seconds = req.snapshot_interval_seconds
+    if req.frame_rate_fps is not None:
+        camera.frame_rate_fps = req.frame_rate_fps
+        # Automatically update interval to match FPS (capped at 1s for interval calculation if FPS > 1)
+        # 1 FPS = 1.0s, 5 FPS = 0.2s, 24 FPS = 0.041s
+        camera.snapshot_interval_seconds = max(0.01, 1.0 / req.frame_rate_fps) if req.frame_rate_fps > 0 else 300
     if req.jpeg_quality is not None:
         camera.jpeg_quality = req.jpeg_quality
     if req.resolution_profile is not None:
@@ -344,6 +361,15 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
 
+    # Verify user exists
+    user = db.query(User).filter(User.id == req.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Verify user belongs to this org
+    if user.org_id != org_id:
+        raise HTTPException(status_code=403, detail="User does not belong to this organization")
+
     # Save image locally
     local_path = None
     try:
@@ -351,9 +377,9 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
             # Decode base64 image
             image_bytes = base64.b64decode(req.image_data)
 
-            # Create folder structure: data/cctv/{username}/{YYYYMMDD}/
+            # Create folder structure: data/cctv/{user_id}/{YYYYMMDD}/
             date_str = req.captured_at.strftime("%Y%m%d")
-            cctv_dir = Path("data/cctv") / req.username / date_str
+            cctv_dir = Path("data/cctv") / req.user_id / date_str
             cctv_dir.mkdir(parents=True, exist_ok=True)
 
             # Generate filename: {CAMERA_ID}_{YYYYMMDD}_{HHMMSS}_{mmm}.jpg
@@ -368,7 +394,7 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
 
             local_path = str(filepath)
             file_size = len(image_bytes)
-            logging.info(f"Saved CCTV snapshot: {local_path}")
+            logging.info(f"Saved CCTV snapshot for user {req.user_id}: {local_path}")
 
     except Exception as e:
         logging.error(f"Failed to save CCTV snapshot locally: {e}")
@@ -385,6 +411,7 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
         camera_id=req.camera_id,
         location_id=camera.location_id,
         org_id=org_id,
+        user_id=req.user_id,
         captured_at=req.captured_at,
         hour_bucket=hour_bucket,
         date_bucket=date_bucket,

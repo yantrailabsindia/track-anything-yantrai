@@ -7,7 +7,6 @@ import {
   getUser, clearAuth, downloadWindowsAgent, checkDownloadAvailable, fetchOrganizationDetails,
   fetchMyInvites, acceptInvite, declineInvite, sendInvite
 } from "../../lib/api";
-import { CCTVDashboard } from "../../components/CCTVDashboard";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -297,11 +296,6 @@ function DashboardContent() {
               {dashboardData.screenshots.length === 0 && <div style={{ gridColumn: "1/3", display: "flex", alignItems: "center", justifyContent: "center", color: "#475569" }}>No snapshots yet.</div>}
             </div>
           </div>
-        </div>
-
-        {/* CCTV Live Feeds */}
-        <div style={{ marginBottom: 32 }}>
-          <CCTVDashboard />
         </div>
 
         {/* Employee Management */}

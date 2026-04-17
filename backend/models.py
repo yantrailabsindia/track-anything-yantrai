@@ -195,16 +195,18 @@ class CCTVSnapshot(Base):
     __table_args__ = (
         Index("ix_snapshot_org_location_camera_date_hour", "org_id", "location_id", "camera_id", "date_bucket", "hour_bucket"),
         Index("ix_snapshot_org_timestamp", "org_id", "captured_at"),
+        Index("ix_snapshot_user_timestamp", "user_id", "captured_at"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     camera_id = Column(String, ForeignKey("cameras.id"), nullable=False, index=True)
     location_id = Column(String, ForeignKey("camera_locations.id"), nullable=False, index=True)
     org_id = Column(String, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)  # Who captured it
     captured_at = Column(DateTime, nullable=False, index=True)  # When frame was grabbed
     hour_bucket = Column(Integer, nullable=False)  # 0-23
     date_bucket = Column(String, nullable=False)  # "YYYY-MM-DD"
-    gcs_path = Column(String, nullable=False)  # Full GCS object path
+    gcs_path = Column(String, nullable=False)  # Local file path
     gcs_url = Column(String, nullable=True)  # Signed or public URL
     file_size_bytes = Column(Integer, nullable=True)
     resolution = Column(String, nullable=True)  # e.g., "1920x1080"
@@ -214,6 +216,7 @@ class CCTVSnapshot(Base):
     camera = relationship("Camera", back_populates="snapshots")
     location = relationship("CameraLocation")
     organization = relationship("Organization")
+    user = relationship("User")
 
 
 class CCTVAgentRegistration(Base):

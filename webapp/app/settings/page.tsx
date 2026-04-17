@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getUser, clearAuth, fetchCCTVCameras, updateCameraFrameRate } from "../../lib/api";
+import { getUser, clearAuth } from "../../lib/api";
 import {
-  Activity, ArrowLeft, Settings as SettingsIcon, Clock, Camera, Wifi, Shield, Save, Loader
+  Activity, ArrowLeft, Settings as SettingsIcon, Clock, Wifi, Shield, Save
 } from "lucide-react";
 import Link from "next/link";
 
@@ -19,37 +19,14 @@ export default function SettingsPage() {
   const [inputInterval, setInputInterval] = useState("60");
   const [serverUrl, setServerUrl] = useState("");
   const [autoStart, setAutoStart] = useState(true);
-  const [cctvCameras, setCCTVCameras] = useState<any[]>([]);
-  const [cameraFrameRates, setCameraFrameRates] = useState<Record<string, number>>({});
-  const [cctvLoading, setCCTVLoading] = useState(false);
-  const [savingCameraId, setSavingCameraId] = useState<string | null>(null);
 
   useEffect(() => {
     const u = getUser();
     if (!u) { router.push("/login"); return; }
-    if (u.role !== "admin" && u.role !== "super_admin") { router.push("/dashboard"); return; }
+    // Remove strict admin redirect to allow employees access to personal settings
+    // if (u.role !== "admin" && u.role !== "super_admin") { router.push("/dashboard"); return; }
     setUser(u);
     setLoading(false);
-
-    // Load CCTV cameras
-    async function loadCameras() {
-      try {
-        setCCTVLoading(true);
-        const cams = await fetchCCTVCameras();
-        setCCTVCameras(cams);
-        const rates: Record<string, number> = {};
-        cams.forEach((cam) => {
-          rates[cam.id] = cam.frame_rate_fps || 10;
-        });
-        setCameraFrameRates(rates);
-      } catch (err) {
-        console.error("Failed to load CCTV cameras", err);
-      } finally {
-        setCCTVLoading(false);
-      }
-    }
-
-    loadCameras();
   }, [router]);
 
   function handleSave() {
@@ -59,21 +36,6 @@ export default function SettingsPage() {
     }));
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
-  }
-
-  async function handleUpdateCameraFrameRate(cameraId: string, fps: number) {
-    try {
-      setSavingCameraId(cameraId);
-      await updateCameraFrameRate(cameraId, fps);
-      setCameraFrameRates(prev => ({ ...prev, [cameraId]: fps }));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err: any) {
-      console.error("Failed to update frame rate", err);
-      alert("Failed to update frame rate: " + (err.message || "Unknown error"));
-    } finally {
-      setSavingCameraId(null);
-    }
   }
 
   if (loading) return (
@@ -109,38 +71,42 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Capture Settings */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
-          <Camera size={20} color="var(--primary)" /> Capture Settings
-        </h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div>
-            <label style={labelStyle}>Screenshot Interval (seconds)</label>
-            <p style={descStyle}>How often the desktop agent captures a screenshot of the screen.</p>
-            <input type="number" value={screenshotInterval} onChange={e => setScreenshotInterval(e.target.value)} style={inputStyle} min="30" step="30" />
-          </div>
-          <div>
-            <label style={labelStyle}>Input Summary Interval (seconds)</label>
-            <p style={descStyle}>How often keystroke and click counts are logged.</p>
-            <input type="number" value={inputInterval} onChange={e => setInputInterval(e.target.value)} style={inputStyle} min="10" step="10" />
+      {/* Capture Settings (Admin Only) */}
+      {(user?.role === "admin" || user?.role === "super_admin") && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+            <Camera size={20} color="var(--primary)" /> Capture Settings
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div>
+              <label style={labelStyle}>Screenshot Interval (seconds)</label>
+              <p style={descStyle}>How often the desktop agent captures a screenshot of the screen.</p>
+              <input type="number" value={screenshotInterval} onChange={e => setScreenshotInterval(e.target.value)} style={inputStyle} min="30" step="30" />
+            </div>
+            <div>
+              <label style={labelStyle}>Input Summary Interval (seconds)</label>
+              <p style={descStyle}>How often keystroke and click counts are logged.</p>
+              <input type="number" value={inputInterval} onChange={e => setInputInterval(e.target.value)} style={inputStyle} min="10" step="10" />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Server Settings */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
-          <Wifi size={20} color="#10b981" /> Server Settings
-        </h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div>
-            <label style={labelStyle}>API Server URL</label>
-            <p style={descStyle}>The URL that the desktop agents connect to.</p>
-            <input type="url" value={serverUrl} onChange={e => setServerUrl(e.target.value)} style={inputStyle} />
+      {/* Server Settings (Admin Only) */}
+      {(user?.role === "admin" || user?.role === "super_admin") && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+            <Wifi size={20} color="#10b981" /> Server Settings
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div>
+              <label style={labelStyle}>API Server URL</label>
+              <p style={descStyle}>The URL that the desktop agents connect to.</p>
+              <input type="url" value={serverUrl} onChange={e => setServerUrl(e.target.value)} style={inputStyle} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Agent Settings */}
       <div className="card" style={{ marginBottom: 32 }}>
@@ -170,57 +136,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
-
-      {/* CCTV Settings */}
-      {cctvCameras.length > 0 && (
-        <div className="card" style={{ marginBottom: 32 }}>
-          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
-            <Camera size={20} color="#06b6d4" /> CCTV Camera Settings
-          </h3>
-          {cctvLoading ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#64748b" }}>
-              <Loader size={16} style={{ animation: "spin 1s linear infinite" }} />
-              <span style={{ fontSize: 13 }}>Loading cameras...</span>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {cctvCameras.map((camera) => (
-                <div key={camera.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                  <div>
-                    <label style={{ ...labelStyle, marginBottom: 0 }}>{camera.name}</label>
-                    <p style={{ ...descStyle, marginBottom: 0 }}>Location: {camera.location_id}</p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <select
-                      value={cameraFrameRates[camera.id] || 10}
-                      onChange={(e) => {
-                        const fps = parseInt(e.target.value);
-                        setCameraFrameRates(prev => ({ ...prev, [camera.id]: fps }));
-                        handleUpdateCameraFrameRate(camera.id, fps);
-                      }}
-                      disabled={savingCameraId === camera.id}
-                      style={{
-                        padding: "8px 12px", background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8,
-                        color: "#f0f0f3", fontSize: 13, outline: "none",
-                        cursor: savingCameraId === camera.id ? "wait" : "pointer",
-                        opacity: savingCameraId === camera.id ? 0.6 : 1,
-                      }}
-                    >
-                      <option value="5">5 FPS</option>
-                      <option value="10">10 FPS</option>
-                      <option value="30">30 FPS</option>
-                    </select>
-                    {savingCameraId === camera.id && (
-                      <Loader size={14} style={{ animation: "spin 1s linear infinite", color: "var(--primary)" }} />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Save Button */}
       <button className="btn-primary" onClick={handleSave} style={{

@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchActivity, fetchScreenshots, getUser, clearAuth } from "../../lib/api";
+import { fetchActivity, fetchScreenshots, getUser, clearAuth, fetchCCTVCameras, fetchCCTVLocations, fetchCCTVSnapshots } from "../../lib/api";
 import {
   Activity, Keyboard, MousePointer2, Monitor, Camera, Cpu, Filter
 } from "lucide-react";
 import React from "react";
 import Sidebar from "../../components/Sidebar";
 
-type FilterType = "all" | "input_summary" | "window_change" | "screenshot" | "telemetry";
+type FilterType = "all" | "input_summary" | "window_change" | "screenshot" | "telemetry" | "cctv";
 
 export default function LogsPage() {
   const router = useRouter();
@@ -18,6 +18,9 @@ export default function LogsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
   const [screenshots, setScreenshots] = useState<any[]>([]);
+  const [cctvSnapshots, setCCTVSnapshots] = useState<any[]>([]);
+  const [cctvCameras, setCCTVCameras] = useState<any[]>([]);
+  const [cctvLocations, setCCTVLocations] = useState<any[]>([]);
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
@@ -32,14 +35,20 @@ export default function LogsPage() {
 
     async function loadLogs() {
       try {
-        const [resp, ss] = await Promise.all([
+        const [resp, ss, cams, locs, snaps] = await Promise.all([
           fetchActivity({ limit: 200 }).catch(() => ({ logs: [], total: 0, counts: {} })),
           fetchScreenshots().catch(() => []),
+          fetchCCTVCameras().catch(() => []),
+          fetchCCTVLocations().catch(() => []),
+          fetchCCTVSnapshots({ date: new Date().toISOString().split("T")[0] }).catch(() => []),
         ]);
         setActivity(resp.logs || []);
         setTotalCount(resp.total || 0);
         setTypeCounts(resp.counts || {});
         setScreenshots(ss);
+        setCCTVCameras(cams);
+        setCCTVLocations(locs);
+        setCCTVSnapshots(snaps || []);
       } catch (e) {
         console.error("Failed to load activity logs:", e);
       } finally {
@@ -66,11 +75,28 @@ export default function LogsPage() {
     data: { filename: s.filename, url: s.url },
   }));
 
+  // Build CCTV snapshot entries
+  const cctvEntries = cctvSnapshots.map((snap: any, idx: number) => {
+    const camera = cctvCameras.find((c: any) => c.id === snap.camera_id);
+    return {
+      id: `cctv-${idx}`,
+      timestamp: snap.captured_at,
+      event_type: "cctv" as const,
+      data: {
+        url: snap.url,
+        camera_name: camera?.name || snap.camera_id,
+        camera_id: snap.camera_id
+      },
+    };
+  });
+
   const filtered = filter === "screenshot"
     ? screenshotEntries
-    : filter === "all"
-      ? activity
-      : activity.filter(a => a.event_type === filter);
+    : filter === "cctv"
+      ? cctvEntries
+      : filter === "all"
+        ? activity
+        : activity.filter(a => a.event_type === filter);
 
   const filterCounts = {
     all: totalCount,
@@ -78,6 +104,7 @@ export default function LogsPage() {
     window_change: typeCounts["window_change"] || 0,
     screenshot: screenshots.length,
     telemetry: typeCounts["telemetry"] || 0,
+    cctv: cctvSnapshots.length,
   };
 
   if (!mounted) return <div style={{ minHeight: "100vh", background: "var(--background)" }} />;
@@ -131,6 +158,8 @@ export default function LogsPage() {
             active={filter === "window_change"} onClick={() => setFilter("window_change")} />
           <FilterButton label="Screenshots" count={filterCounts.screenshot} icon={<Camera size={14} />}
             active={filter === "screenshot"} onClick={() => setFilter("screenshot")} />
+          <FilterButton label="CCTV Frames" count={filterCounts.cctv} icon={<Camera size={14} />}
+            active={filter === "cctv"} onClick={() => setFilter("cctv")} />
           <FilterButton label="System" count={filterCounts.telemetry} icon={<Cpu size={14} />}
             active={filter === "telemetry"} onClick={() => setFilter("telemetry")} />
         </div>
@@ -236,6 +265,13 @@ const LogEntry = React.memo(({ item, screenshots, onScreenshotClick, getCachebus
     icon = <Cpu size={14} />;
     color = "#06b6d4";
     detail = `System: CPU ${data.cpu_percent || 0}%  |  RAM ${data.ram_percent || 0}%  |  Battery ${data.battery_percent || "?"}%`;
+  } else if (eventType === "cctv") {
+    icon = <Camera size={14} />;
+    color = "#8b5cf6";
+    detail = `CCTV: ${data.camera_name || "Unknown Camera"}`;
+    if (data.url) {
+      thumbnailUrl = data.url;
+    }
   } else {
     icon = <Activity size={14} />;
     color = "#64748b";

@@ -101,8 +101,24 @@ class HeartbeatWorker:
                     params={"api_key": api_key}
                 )
                 response.raise_for_status()
+                data = response.json()
+
+            # Sync camera settings (FPS/Interval)
+            if "cameras" in data:
+                self._sync_cameras(data["cameras"])
 
             logger.debug(f"Heartbeat sent: {len(camera_statuses)} cameras")
 
         except Exception as e:
             logger.warning(f"Heartbeat failed: {e}")
+
+    def _sync_cameras(self, cameras):
+        """Update snapshot workers with latest settings from the server."""
+        for cam_data in cameras:
+            cam_id = cam_data.get("id")
+            if cam_id in self.snapshot_workers:
+                worker = self.snapshot_workers[cam_id]
+                new_interval = cam_data.get("snapshot_interval_seconds", 300)
+                if worker.interval_seconds != new_interval:
+                    logger.info(f"Syncing camera {cam_id}: updating interval to {new_interval}s")
+                    worker.interval_seconds = new_interval

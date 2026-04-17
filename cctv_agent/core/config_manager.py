@@ -2,14 +2,12 @@ import json
 import os
 import logging
 from pathlib import Path
-from cctv_agent import config as agent_config
 
 class ConfigManager:
     """
-    Manages CCTV agent configuration (JSON).
-    Extends base config with camera list and snapshot settings.
+    Manages application configuration (JSON).
     """
-    DEFAULT_PATH = agent_config.CONFIG_FILE
+    DEFAULT_PATH = Path(os.path.expanduser("~/CCTVViewer/config.json"))
 
     def __init__(self, config_path=None):
         self.config_path = Path(config_path) if config_path else self.DEFAULT_PATH
@@ -39,82 +37,91 @@ class ConfigManager:
 
     def _get_default_config(self):
         return {
-            "agent_id": "site-01",
-            "org_id": "",
-            "location_id": "",
-            "api_url": "http://34.63.62.95",
-            "api_key": "",
-            "gcs_bucket": "",
-            "gcs_path_template": "{org_id}/{location_id}/{camera_id}/{YYYY-MM-DD}/{HH}/",
-            "batch_interval_seconds": 3600,  # 1 hour
-            "max_local_queue_gb": 10,
-            "max_retry_hours": 24,
-            "default_snapshot_interval": 300,
-            "default_jpeg_quality": 85,
-            "default_resolution_profile": "sub",
-            "cameras": []
+            "devices": [],
+            "grid_layout_order": [],
+            "theme": "dark",
+            "user": {
+                "user_id": None,
+                "token": None,
+                "api_url": ""
+            },
+            "cloud": {
+                "server_host": "",
+                "api_url": "",
+                "api_key": "",
+                "agent_id": "site-01",
+                "srt_base_port": 8001,
+                "srt_latency_ms": 300,
+                "srt_passphrase": "",
+                "stream_quality": "Sub Stream",
+                "ffmpeg_path": ""
+            },
+            "snapshot": {
+                "frame_rate_fps": 10
+            }
         }
 
-    def add_camera(self, camera_info):
-        """Add or update a camera in config."""
-        # Prevent duplicates by IP
-        self.config["cameras"] = [
-            c for c in self.config.get("cameras", [])
-            if c.get("ip_address") != camera_info.get("ip_address")
-        ]
-        self.config["cameras"].append(camera_info)
+    def add_device(self, device_info):
+        # Prevent duplicates
+        self.config["devices"] = [d for d in self.config["devices"] if d["ip"] != device_info["ip"]]
+        self.config["devices"].append(device_info)
         self.save_config()
 
-    def get_cameras(self):
-        """Get all configured cameras."""
-        return self.config.get("cameras", [])
-
-    def get_camera_by_ip(self, ip):
-        """Get camera config by IP address."""
-        for cam in self.get_cameras():
-            if cam.get("ip_address") == ip:
-                return cam
-        return None
-
-    def remove_camera(self, ip):
-        """Remove camera from config."""
-        self.config["cameras"] = [
-            c for c in self.config.get("cameras", [])
-            if c.get("ip_address") != ip
-        ]
-        self.save_config()
+    def get_devices(self):
+        return self.config.get("devices", [])
 
     def get_cloud_settings(self):
-        """Get cloud (GCS + backend) settings."""
-        return {
-            "api_url": self.config.get("api_url"),
-            "api_key": self.config.get("api_key"),
-            "gcs_bucket": self.config.get("gcs_bucket"),
-            "gcs_path_template": self.config.get("gcs_path_template"),
-            "batch_interval_seconds": self.config.get("batch_interval_seconds"),
-            "max_local_queue_gb": self.config.get("max_local_queue_gb"),
-            "max_retry_hours": self.config.get("max_retry_hours")
-        }
+        return self.config.get("cloud", {
+            "agent_id": "site-01",
+            "srt_base_port": 8001,
+            "srt_latency_ms": 300,
+            "always_resume": False,
+            "active_streams": []
+        })
 
     def save_cloud_settings(self, settings):
-        """Update cloud settings."""
-        self.config.update(settings)
+        self.config["cloud"] = settings
         self.save_config()
 
-    def get_agent_info(self):
-        """Get agent identity info."""
-        return {
-            "agent_id": self.config.get("agent_id"),
-            "org_id": self.config.get("org_id"),
-            "location_id": self.config.get("location_id")
+    def get_user_info(self):
+        """Get stored user authentication info."""
+        return self.config.get("user", {
+            "user_id": None,
+            "token": None,
+            "api_url": ""
+        })
+
+    def save_user_info(self, user_id, token, api_url):
+        """Save user authentication info."""
+        self.config["user"] = {
+            "user_id": user_id,
+            "token": token,
+            "api_url": api_url
         }
-
-    def update_agent_info(self, agent_id=None, org_id=None, location_id=None):
-        """Update agent identity."""
-        if agent_id:
-            self.config["agent_id"] = agent_id
-        if org_id:
-            self.config["org_id"] = org_id
-        if location_id:
-            self.config["location_id"] = location_id
         self.save_config()
+
+    def get_snapshot_settings(self):
+        """Get snapshot/frame rate settings."""
+        return self.config.get("snapshot", {"frame_rate_fps": 10})
+
+    def save_snapshot_settings(self, settings):
+        """Save snapshot settings."""
+        self.config["snapshot"] = settings
+        self.save_config()
+
+    def set_stream_active(self, ip, ch_num, active):
+        cloud = self.get_cloud_settings()
+        active_list = cloud.get("active_streams", [])
+        key = f"{ip}:{ch_num}"
+        
+        if active and key not in active_list:
+            active_list.append(key)
+        elif not active and key in active_list:
+            active_list.remove(key)
+            
+        cloud["active_streams"] = active_list
+        self.save_cloud_settings(cloud)
+
+    def is_stream_previously_active(self, ip, ch_num):
+        cloud = self.get_cloud_settings()
+        return f"{ip}:{ch_num}" in cloud.get("active_streams", [])
