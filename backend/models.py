@@ -178,6 +178,7 @@ class Camera(Base):
     snapshot_interval_seconds = Column(Integer, default=300)
     jpeg_quality = Column(Integer, default=85)
     resolution_profile = Column(String, default="sub")  # "main" or "sub"
+    frame_rate_fps = Column(Integer, default=10)  # Configurable frame rate (5, 10, 30)
     status = Column(String, default="offline")  # "online", "offline", "error"
     last_seen_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)

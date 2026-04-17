@@ -345,3 +345,56 @@ export async function saveConversation(chatroomId: string, messages: any[]) {
   }
   return res.json();
 }
+
+// ─── CCTV ──────────────────────────────────────────────────
+
+export async function fetchCCTVCameras(locationId?: string) {
+  const params = new URLSearchParams();
+  const user = getUser();
+  if (user?.org_id) params.set("org_id", user.org_id);
+  if (locationId) params.set("location_id", locationId);
+  const res = await fetch(`${API_BASE_URL}/cctv/cameras?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch CCTV cameras");
+  return res.json();
+}
+
+export async function fetchCCTVLocations() {
+  const params = new URLSearchParams();
+  const user = getUser();
+  if (user?.org_id) params.set("org_id", user.org_id);
+  const res = await fetch(`${API_BASE_URL}/cctv/locations?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch CCTV locations");
+  return res.json();
+}
+
+export async function fetchCCTVFeed(cameraId: string): Promise<{ snapshot_id: number; camera_id: string; captured_at: string; image_data: string | null; file_path: string; file_size_bytes: number }> {
+  const params = new URLSearchParams();
+  const user = getUser();
+  if (user?.org_id) params.set("org_id", user.org_id);
+  const res = await fetch(`${API_BASE_URL}/cctv/feed/${cameraId}?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch CCTV feed");
+  return res.json();
+}
+
+export async function fetchCCTVSnapshots(cameraId?: string, locationId?: string, date?: string) {
+  const params = new URLSearchParams();
+  const user = getUser();
+  if (user?.org_id) params.set("org_id", user.org_id);
+  if (cameraId) params.set("camera_id", cameraId);
+  if (locationId) params.set("location_id", locationId);
+  if (date) params.set("date", date);
+  params.set("limit", "50");
+  const res = await fetch(`${API_BASE_URL}/cctv/snapshots?${params}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch CCTV snapshots");
+  return res.json();
+}
+
+export async function updateCameraFrameRate(cameraId: string, frameRateFps: number) {
+  const res = await fetch(`${API_BASE_URL}/cctv/cameras/${cameraId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ frame_rate_fps: frameRateFps }),
+  });
+  if (!res.ok) throw new Error("Failed to update camera frame rate");
+  return res.json();
+}

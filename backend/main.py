@@ -28,6 +28,10 @@ SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 app.mount("/screenshots", StaticFiles(directory=str(SCREENSHOTS_DIR)), name="screenshots")
 
+CCTV_DIR = DATA_DIR / "cctv"
+CCTV_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/cctv-data", StaticFiles(directory=str(CCTV_DIR)), name="cctv-data")
+
 # Include routers
 # Note: In backend.routers.__init__, we exported them aliased directly, e.g. 'router as auth_router'
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])

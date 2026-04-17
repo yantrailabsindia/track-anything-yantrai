@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime, timedelta
 import secrets
+import base64
+from pathlib import Path
+import os
+import logging
 
 from backend.database import get_db
 from backend.models import (
@@ -86,7 +90,9 @@ class CameraResponse(BaseModel):
 class CCTVSnapshotIngest(BaseModel):
     camera_id: str
     captured_at: datetime
-    gcs_path: str
+    username: str
+    image_data: str  # base64-encoded JPEG image
+    gcs_path: Optional[str] = None  # Optional for backward compatibility
     file_size_bytes: Optional[int] = None
     resolution: Optional[str] = None
 
@@ -327,7 +333,7 @@ def update_camera(camera_id: str, req: CameraUpdate, org_id: str = Query(...), d
 
 @router.post("/snapshots")
 def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Session = Depends(get_db)):
-    """Ingest snapshot metadata from agent after GCS upload."""
+    """Ingest snapshot from agent with local file storage."""
     agent_id, org_id = get_agent_org(api_key, db)
 
     # Verify camera
@@ -338,9 +344,42 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
 
+    # Save image locally
+    local_path = None
+    try:
+        if req.image_data:
+            # Decode base64 image
+            image_bytes = base64.b64decode(req.image_data)
+
+            # Create folder structure: data/cctv/{username}/{YYYYMMDD}/
+            date_str = req.captured_at.strftime("%Y%m%d")
+            cctv_dir = Path("data/cctv") / req.username / date_str
+            cctv_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename: {CAMERA_ID}_{YYYYMMDD}_{HHMMSS}_{mmm}.jpg
+            timestamp_str = req.captured_at.strftime("%Y%m%d_%H%M%S")
+            milliseconds = req.captured_at.microsecond // 1000
+            filename = f"{req.camera_id}_{timestamp_str}_{milliseconds:03d}.jpg"
+
+            # Save file
+            filepath = cctv_dir / filename
+            with open(filepath, 'wb') as f:
+                f.write(image_bytes)
+
+            local_path = str(filepath)
+            file_size = len(image_bytes)
+            logging.info(f"Saved CCTV snapshot: {local_path}")
+
+    except Exception as e:
+        logging.error(f"Failed to save CCTV snapshot locally: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save snapshot: {str(e)}")
+
     # Extract hour and date from captured_at
     hour_bucket = req.captured_at.hour
     date_bucket = req.captured_at.strftime("%Y-%m-%d")
+
+    # Use local path if available, fallback to GCS path
+    stored_path = local_path or req.gcs_path or ""
 
     snapshot = CCTVSnapshot(
         camera_id=req.camera_id,
@@ -349,8 +388,8 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
         captured_at=req.captured_at,
         hour_bucket=hour_bucket,
         date_bucket=date_bucket,
-        gcs_path=req.gcs_path,
-        file_size_bytes=req.file_size_bytes,
+        gcs_path=stored_path,  # Now stores local path
+        file_size_bytes=req.file_size_bytes or len(image_bytes) if req.image_data else None,
         resolution=req.resolution
     )
     db.add(snapshot)
@@ -412,4 +451,36 @@ def get_snapshot_url(snapshot_id: int, org_id: str = Query(...), db: Session = D
         "gcs_path": snapshot.gcs_path,
         "signed_url": f"https://storage.googleapis.com/[signed_url_placeholder]",
         "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat()
+    }
+
+
+@router.get("/feed/{camera_id}")
+def get_latest_cctv_feed(camera_id: str, org_id: str = Query(...), db: Session = Depends(get_db)):
+    """Get latest CCTV snapshot for a camera."""
+    # Get latest snapshot for this camera
+    snapshot = db.query(CCTVSnapshot).filter(
+        CCTVSnapshot.camera_id == camera_id,
+        CCTVSnapshot.org_id == org_id
+    ).order_by(CCTVSnapshot.captured_at.desc()).first()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshots found for this camera")
+
+    # Try to load the image from local disk
+    image_data = None
+    try:
+        if snapshot.gcs_path and Path(snapshot.gcs_path).exists():
+            with open(snapshot.gcs_path, 'rb') as f:
+                image_bytes = f.read()
+                image_data = base64.b64encode(image_bytes).decode('utf-8')
+    except Exception as e:
+        logging.warning(f"Failed to load image from disk: {e}")
+
+    return {
+        "snapshot_id": snapshot.id,
+        "camera_id": snapshot.camera_id,
+        "captured_at": snapshot.captured_at.isoformat(),
+        "image_data": image_data,  # base64-encoded JPEG
+        "file_path": snapshot.gcs_path,
+        "file_size_bytes": snapshot.file_size_bytes
     }

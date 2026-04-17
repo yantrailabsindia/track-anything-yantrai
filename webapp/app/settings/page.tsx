@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getUser, clearAuth } from "../../lib/api";
+import { getUser, clearAuth, fetchCCTVCameras, updateCameraFrameRate } from "../../lib/api";
 import {
-  Activity, ArrowLeft, Settings as SettingsIcon, Clock, Camera, Wifi, Shield, Save
+  Activity, ArrowLeft, Settings as SettingsIcon, Clock, Camera, Wifi, Shield, Save, Loader
 } from "lucide-react";
 import Link from "next/link";
 
@@ -19,6 +19,10 @@ export default function SettingsPage() {
   const [inputInterval, setInputInterval] = useState("60");
   const [serverUrl, setServerUrl] = useState("");
   const [autoStart, setAutoStart] = useState(true);
+  const [cctvCameras, setCCTVCameras] = useState<any[]>([]);
+  const [cameraFrameRates, setCameraFrameRates] = useState<Record<string, number>>({});
+  const [cctvLoading, setCCTVLoading] = useState(false);
+  const [savingCameraId, setSavingCameraId] = useState<string | null>(null);
 
   useEffect(() => {
     const u = getUser();
@@ -26,6 +30,26 @@ export default function SettingsPage() {
     if (u.role !== "admin" && u.role !== "super_admin") { router.push("/dashboard"); return; }
     setUser(u);
     setLoading(false);
+
+    // Load CCTV cameras
+    async function loadCameras() {
+      try {
+        setCCTVLoading(true);
+        const cams = await fetchCCTVCameras();
+        setCCTVCameras(cams);
+        const rates: Record<string, number> = {};
+        cams.forEach((cam) => {
+          rates[cam.id] = cam.frame_rate_fps || 10;
+        });
+        setCameraFrameRates(rates);
+      } catch (err) {
+        console.error("Failed to load CCTV cameras", err);
+      } finally {
+        setCCTVLoading(false);
+      }
+    }
+
+    loadCameras();
   }, [router]);
 
   function handleSave() {
@@ -35,6 +59,21 @@ export default function SettingsPage() {
     }));
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+  }
+
+  async function handleUpdateCameraFrameRate(cameraId: string, fps: number) {
+    try {
+      setSavingCameraId(cameraId);
+      await updateCameraFrameRate(cameraId, fps);
+      setCameraFrameRates(prev => ({ ...prev, [cameraId]: fps }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err: any) {
+      console.error("Failed to update frame rate", err);
+      alert("Failed to update frame rate: " + (err.message || "Unknown error"));
+    } finally {
+      setSavingCameraId(null);
+    }
   }
 
   if (loading) return (
@@ -131,6 +170,57 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* CCTV Settings */}
+      {cctvCameras.length > 0 && (
+        <div className="card" style={{ marginBottom: 32 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+            <Camera size={20} color="#06b6d4" /> CCTV Camera Settings
+          </h3>
+          {cctvLoading ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#64748b" }}>
+              <Loader size={16} style={{ animation: "spin 1s linear infinite" }} />
+              <span style={{ fontSize: 13 }}>Loading cameras...</span>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {cctvCameras.map((camera) => (
+                <div key={camera.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 16, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                  <div>
+                    <label style={{ ...labelStyle, marginBottom: 0 }}>{camera.name}</label>
+                    <p style={{ ...descStyle, marginBottom: 0 }}>Location: {camera.location_id}</p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <select
+                      value={cameraFrameRates[camera.id] || 10}
+                      onChange={(e) => {
+                        const fps = parseInt(e.target.value);
+                        setCameraFrameRates(prev => ({ ...prev, [camera.id]: fps }));
+                        handleUpdateCameraFrameRate(camera.id, fps);
+                      }}
+                      disabled={savingCameraId === camera.id}
+                      style={{
+                        padding: "8px 12px", background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8,
+                        color: "#f0f0f3", fontSize: 13, outline: "none",
+                        cursor: savingCameraId === camera.id ? "wait" : "pointer",
+                        opacity: savingCameraId === camera.id ? 0.6 : 1,
+                      }}
+                    >
+                      <option value="5">5 FPS</option>
+                      <option value="10">10 FPS</option>
+                      <option value="30">30 FPS</option>
+                    </select>
+                    {savingCameraId === camera.id && (
+                      <Loader size={14} style={{ animation: "spin 1s linear infinite", color: "var(--primary)" }} />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Save Button */}
       <button className="btn-primary" onClick={handleSave} style={{
