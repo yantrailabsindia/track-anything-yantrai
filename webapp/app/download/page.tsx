@@ -15,7 +15,7 @@ export default function DownloadPage() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [serverUrl, setServerUrl] = useState("http://localhost:8765");
+  const [serverUrl, setServerUrl] = useState("");
 
   useEffect(() => {
     const u = getUser();

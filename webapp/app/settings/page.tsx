@@ -17,7 +17,7 @@ export default function SettingsPage() {
   // Settings state
   const [screenshotInterval, setScreenshotInterval] = useState("300");
   const [inputInterval, setInputInterval] = useState("60");
-  const [serverUrl, setServerUrl] = useState("http://localhost:8765");
+  const [serverUrl, setServerUrl] = useState("");
   const [autoStart, setAutoStart] = useState(true);
 
   useEffect(() => {

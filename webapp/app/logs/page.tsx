@@ -94,7 +94,7 @@ export default function LogsPage() {
     const filename = url.split('/').pop() || 'unknown';
     // Use filename hash as cache key (stable, changes only when screenshot changes)
     const cacheKey = filename.replace(/[^a-zA-Z0-9]/g, '');
-    return `http://localhost:8765${url}?t=${cacheKey}`;
+    return `${url}?t=${cacheKey}`;
   };
 
   return (
