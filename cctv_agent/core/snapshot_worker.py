@@ -36,7 +36,7 @@ class SnapshotWorker(QThread):
         self.wait_condition = QWaitCondition()
 
         # Initialize data folder
-        self.data_dir = Path(os.path.expanduser("~/CCTVViewer/data/cctv"))
+        self.data_dir = Path(os.path.expanduser("~/CCTVAgent/data/cctv"))
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Get FPS config (default 10 FPS = 100ms interval)
