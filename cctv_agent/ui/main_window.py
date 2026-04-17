@@ -5,20 +5,19 @@ from PySide6.QtWidgets import (QMainWindow, QTabWidget, QStatusBar, QMenuBar,
 from PySide6.QtGui import QIcon, QAction, QKeySequence, QShortcut
 from PySide6.QtCore import Qt
 import psutil
-from ui.discovery_tab import DiscoveryTab
-from ui.viewer_tab import ViewerTab
-from ui.cloud_tab import CloudTab
-from ui.cctv_settings_tab import CCTVSettingsTab
-from ui.login_dialog import LoginDialog
-from core.config_manager import ConfigManager
-from core.snapshot_worker import SnapshotWorker
+from cctv_agent.ui.tabs_placeholder import DiscoveryTab, ViewerTab, CloudTab
+from cctv_agent.ui.cctv_settings_tab import CCTVSettingsTab
+from cctv_agent.ui.login_dialog import LoginDialog
+from cctv_agent.core.config_manager import ConfigManager
+from cctv_agent.core.snapshot_worker import SnapshotWorker
 
 class MainWindow(QMainWindow):
-    def __init__(self, config_manager):
+    def __init__(self, config_manager, old_pid=None):
         super().__init__()
-        self.setWindowTitle("Onsite Agent")
+        self.setWindowTitle("CCTV Agent")
         self.resize(1200, 800)
         self.config_manager = config_manager
+        self.old_pid = old_pid  # Store old PID to kill after authentication
 
         # Check if user is logged in, if not show login dialog
         user_info = self.config_manager.get_user_info()
@@ -127,6 +126,11 @@ class MainWindow(QMainWindow):
                 dialog.token,
                 dialog.api_url
             )
+
+            # After successful authentication, kill the old instance
+            # Import here to avoid circular imports
+            from cctv_agent.main_gui import kill_old_instance
+            kill_old_instance(self.old_pid)
         else:
             logging.warning("User skipped login, features may be limited")
 
