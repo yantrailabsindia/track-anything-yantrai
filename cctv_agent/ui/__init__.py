@@ -1,0 +1,1 @@
+"""CCTV Agent GUI Components."""
