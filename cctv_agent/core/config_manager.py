@@ -14,12 +14,18 @@ class ConfigManager:
         self.config_path = Path(config_path) if config_path else self.DEFAULT_PATH
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Migrate legacy config if new one doesn't exist
+        # Migrate legacy config (devices/settings only - NOT credentials)
+        # This forces re-login when switching to the new config location,
+        # ensuring users re-authenticate with the current backend.
         if not self.config_path.exists() and self.LEGACY_PATH.exists():
             try:
-                import shutil
-                shutil.copy2(self.LEGACY_PATH, self.config_path)
-                logging.info(f"Migrated legacy config from {self.LEGACY_PATH} to {self.config_path}")
+                with open(self.LEGACY_PATH, "r") as f:
+                    legacy = json.load(f)
+                # Clear user credentials - force fresh login
+                legacy["user"] = {"user_id": None, "token": None, "api_url": ""}
+                with open(self.config_path, "w") as f:
+                    json.dump(legacy, f, indent=4)
+                logging.info(f"Migrated legacy config (credentials cleared) from {self.LEGACY_PATH}")
             except Exception as e:
                 logging.error(f"Failed to migrate legacy config: {e}")
 
