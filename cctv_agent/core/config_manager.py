@@ -7,11 +7,22 @@ class ConfigManager:
     """
     Manages application configuration (JSON).
     """
-    DEFAULT_PATH = Path(os.path.expanduser("~/CCTVViewer/config.json"))
+    DEFAULT_PATH = Path(os.path.expanduser("~/CCTVAgent/config.json"))
+    LEGACY_PATH = Path(os.path.expanduser("~/CCTVViewer/config.json"))
 
     def __init__(self, config_path=None):
         self.config_path = Path(config_path) if config_path else self.DEFAULT_PATH
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Migrate legacy config if new one doesn't exist
+        if not self.config_path.exists() and self.LEGACY_PATH.exists():
+            try:
+                import shutil
+                shutil.copy2(self.LEGACY_PATH, self.config_path)
+                logging.info(f"Migrated legacy config from {self.LEGACY_PATH} to {self.config_path}")
+            except Exception as e:
+                logging.error(f"Failed to migrate legacy config: {e}")
+
         self.config = self.load_config()
 
     def load_config(self):
