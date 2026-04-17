@@ -11,6 +11,7 @@ import {
   BarChart3, TrendingUp, Shield
 } from "lucide-react";
 import Sidebar from "../../components/Sidebar";
+import { CCTVDashboard } from "../../components/CCTVDashboard";
 
 export default function MyDashboard() {
   const router = useRouter();
@@ -443,6 +444,10 @@ export default function MyDashboard() {
           })()}
         </div>
 
+        {/* CCTV Live Monitoring */}
+        <div style={{ marginBottom: 32 }}>
+          <CCTVDashboard />
+        </div>
       </main>
     </div>
   );
