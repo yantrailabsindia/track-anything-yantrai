@@ -1,6 +1,6 @@
-# Final Deployment Guide — ProMe GCE
+# Final Deployment Guide — YantrAI Track Anything
 
-This guide explains how to deploy the entire ProMe stack on your `yantrai-mohit` instance.
+This guide explains how to deploy the entire system on your `yantrai-mohit` instance.
 
 ## 1. Prerequisites (Run these on the VM)
 SSH into your instance and install Docker:
@@ -12,9 +12,9 @@ sudo usermod -aG docker $USER
 ```
 
 ## 2. Code & Files Transfer
-Transfer the current project folder to the VM (e.g., to `/opt/prome`).
+Transfer the current project folder to the VM (e.g., to `/opt/yantrai`).
 Ensure the following are present:
-- `dist/ProMe.exe`
+- `dist/WindowsAgent.exe`
 - `dist/CCTVAgent.exe`
 - `data/prome.db` (The 63MB database)
 - `.env` (Create this from `.env.production.example`)

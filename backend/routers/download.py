@@ -7,11 +7,11 @@ router = APIRouter()
 
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "dist"
 
-# ─── Windows Agent (ProMe) ──────────────────────────────────
+# ─── Windows Agent ──────────────────────────────────────────
 
 @router.get("/windows-agent")
 def download_windows_agent(request: Request):
-    """Download ProMe Windows Agent (Desktop Tracker)."""
+    """Download Windows Agent (Desktop Tracker)."""
     auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
     token = None
     if auth_header:
@@ -27,13 +27,13 @@ def download_windows_agent(request: Request):
     if not token_data:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    exe_path = DIST_DIR / "ProMe.exe"
+    exe_path = DIST_DIR / "WindowsAgent.exe"
     if not exe_path.exists():
         raise HTTPException(status_code=404, detail="Windows Agent build not available yet. Contact admin.")
 
     response = FileResponse(
         path=str(exe_path),
-        filename="ProMe.exe",
+        filename="WindowsAgent.exe",
         media_type="application/octet-stream"
     )
     # Disable caching to ensure latest version is downloaded
@@ -82,7 +82,7 @@ def download_cctv_agent(request: Request):
 @router.get("/check")
 def check_download_available():
     """Check if agents are available (no auth required)."""
-    windows_agent_path = DIST_DIR / "ProMe.exe"
+    windows_agent_path = DIST_DIR / "WindowsAgent.exe"
     cctv_agent_path = DIST_DIR / "CCTVAgent.exe"
     return {
         "windows_agent": windows_agent_path.exists(),
@@ -93,5 +93,5 @@ def check_download_available():
 
 @router.get("/")
 def download_agent(request: Request):
-    """Backward compatibility: Download Windows Agent (ProMe)."""
+    """Backward compatibility: Download Windows Agent."""
     return download_windows_agent(request)

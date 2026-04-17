@@ -4,7 +4,7 @@ from pathlib import Path
 
 # Paths — handle PyInstaller bundled exe vs dev mode
 if getattr(sys, 'frozen', False):
-    # Running as PyInstaller exe: dist/ProMe.exe → parent.parent = project root
+    # Running as PyInstaller exe: dist/WindowsAgent.exe → parent.parent = project root
     BASE_DIR = Path(sys.executable).resolve().parent.parent
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,7 +24,7 @@ TELEMETRY_INTERVAL = 60  # 1 minute
 WINDOW_POLL_INTERVAL = 5  # 5 seconds
 
 # App Info
-APP_NAME = "ProMe"
+APP_NAME = "Windows Agent"
 VERSION = "0.1.0"
 ICON_PATH = str(BASE_DIR / "desktop" / "assets" / "icon.png")
 
