@@ -222,7 +222,7 @@ def agent_heartbeat(req: AgentHeartbeat, api_key: str = Query(...), db: Session 
     
     return {
         "status": "ok",
-        "cameras": [CameraResponse.from_orm(cam) for cam in cameras]
+        "cameras": [CameraResponse.model_validate(cam, from_attributes=True) for cam in cameras]
     }
 
 
@@ -245,7 +245,7 @@ def create_location(req: CameraLocationCreate, org_id: str = Query(...), db: Ses
     db.commit()
     db.refresh(location)
 
-    return CameraLocationResponse.from_orm(location)
+    return CameraLocationResponse.model_validate(location, from_attributes=True)
 
 
 @router.get("/locations")
@@ -259,7 +259,7 @@ def list_locations(org_id: str = Query(...), db: Session = Depends(get_db)) -> L
         CameraLocation.org_id == org_id
     ).all()
 
-    return [CameraLocationResponse.from_orm(loc) for loc in locations]
+    return [CameraLocationResponse.model_validate(loc, from_attributes=True) for loc in locations]
 
 
 @router.post("/cameras")
@@ -296,7 +296,7 @@ def create_camera(req: CameraCreate, org_id: str = Query(...), api_key: Optional
     db.commit()
     db.refresh(camera)
 
-    return CameraResponse.from_orm(camera)
+    return CameraResponse.model_validate(camera, from_attributes=True)
 
 
 @router.get("/cameras")
@@ -312,7 +312,7 @@ def list_cameras(
         query = query.filter(Camera.location_id == location_id)
 
     cameras = query.all()
-    return [CameraResponse.from_orm(cam) for cam in cameras]
+    return [CameraResponse.model_validate(cam, from_attributes=True) for cam in cameras]
 
 
 @router.patch("/cameras/{camera_id}")
@@ -345,7 +345,7 @@ def update_camera(camera_id: str, req: CameraUpdate, org_id: str = Query(...), d
     db.commit()
     db.refresh(camera)
 
-    return CameraResponse.from_orm(camera)
+    return CameraResponse.model_validate(camera, from_attributes=True)
 
 
 @router.post("/snapshots")
@@ -423,7 +423,7 @@ def ingest_snapshot(req: CCTVSnapshotIngest, api_key: str = Query(...), db: Sess
     db.commit()
     db.refresh(snapshot)
 
-    return CCTVSnapshotResponse.from_orm(snapshot)
+    return CCTVSnapshotResponse.model_validate(snapshot, from_attributes=True)
 
 
 @router.get("/snapshots")
@@ -456,7 +456,7 @@ def query_snapshots(
         "total": total,
         "skip": skip,
         "limit": limit,
-        "snapshots": [CCTVSnapshotResponse.from_orm(s) for s in snapshots]
+        "snapshots": [CCTVSnapshotResponse.model_validate(s, from_attributes=True) for s in snapshots]
     }
 
 

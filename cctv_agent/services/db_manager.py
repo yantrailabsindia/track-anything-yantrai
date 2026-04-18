@@ -93,7 +93,8 @@ class DBManager:
         local_file_path: str,
         gcs_path: str,
         file_size_bytes: int,
-        resolution: Optional[str] = None
+        resolution: Optional[str] = None,
+        status: str = "pending"
     ) -> bool:
         """Add snapshot to upload queue."""
         try:
@@ -101,12 +102,12 @@ class DBManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO snapshot_queue
-                    (camera_id, location_id, org_id, captured_at, local_file_path, gcs_path, file_size_bytes, resolution)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (camera_id, location_id, org_id, captured_at, local_file_path, gcs_path, file_size_bytes, resolution, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     camera_id, location_id, org_id,
                     captured_at.isoformat(),
-                    local_file_path, gcs_path, file_size_bytes, resolution
+                    local_file_path, gcs_path, file_size_bytes, resolution, status
                 ))
                 conn.commit()
                 return True
@@ -115,18 +116,18 @@ class DBManager:
             logger.error(f"Failed to add snapshot to queue: {e}")
             return False
 
-    def get_pending_snapshots(self, limit: int = 100) -> List[Dict]:
-        """Get pending snapshots from queue."""
+    def get_pending_snapshots(self, limit: int = 100, max_retries: int = 3) -> List[Dict]:
+        """Get pending snapshots and failed ones below retry limit."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT * FROM snapshot_queue
-                    WHERE status = 'pending'
+                    WHERE status = 'pending' OR (status = 'failed' AND retry_count < ?)
                     ORDER BY created_at ASC
                     LIMIT ?
-                """, (limit,))
+                """, (max_retries, limit))
                 rows = cursor.fetchall()
                 return [dict(row) for row in rows]
 
