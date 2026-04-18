@@ -84,99 +84,89 @@ class SnapshotWorker:
         # Load credentials
         username, password = CredentialStore.load_credentials(self.ip_address)
 
-        # Initialize frame grabber
+        # Initialize schedule manager
+        from cctv_agent.core.schedule_manager import ScheduleManager
+        scheduler = ScheduleManager(start_hour=9, end_hour=22)
+
+        # Initialize persistent frame grabber
         try:
-            grabber = FrameGrabber(self.rtsp_url, username, password)
+            from cctv_agent.services.frame_grabber import PersistentFrameGrabber
+            grabber = PersistentFrameGrabber(self.rtsp_url, username, password)
+            grabber.start()
         except Exception as e:
-            logger.error(f"Failed to initialize frame grabber for {self.camera_id}: {e}")
-            self.log_emitter.emit(
-                "error",
-                "capture",
-                f"Failed to initialize frame grabber: {e}",
-                camera_id=self.camera_id
-            )
+            logger.error(f"Failed to initialize persistent grabber for {self.camera_id}: {e}")
             return
 
-        next_capture = time.time()
+        try:
+            while not self.stop_event.is_set():
+                # Check schedule
+                if not scheduler.is_currently_active():
+                    # Outside 9am-10pm IST, sleep longer
+                    self.stop_event.wait(60)
+                    continue
 
-        while not self.stop_event.is_set():
-            now = time.time()
+                now = time.time()
+                
+                # Capture frame
+                self._capture_frame_persistent(grabber, scheduler)
 
-            if now >= next_capture:
-                logger.info(f"Main loop: triggering capture for {self.camera_id}")
-                self._capture_frame(grabber)
-                next_capture = now + self.interval_seconds
-                logger.info(f"Main loop: next capture in {self.interval_seconds}s")
+                # Wait for next frame (5 FPS = 0.2s interval)
+                # account for processing time
+                elapsed = time.time() - now
+                wait_time = max(0.01, self.interval_seconds - elapsed)
+                self.stop_event.wait(wait_time)
+        finally:
+            grabber.stop()
 
-            # Sleep briefly to avoid busy-waiting
-            self.stop_event.wait(min(1.0, next_capture - time.time()))
+    def _capture_frame_persistent(self, grabber, scheduler):
+        """Capture a frame from the persistent grabber."""
+        success, jpeg_bytes = grabber.get_frame()
+        if success and jpeg_bytes:
+            self._process_frame(jpeg_bytes, scheduler)
+        else:
+            # Maybe stream is reconnecting
+            pass
+
+    def _process_frame(self, jpeg_bytes, scheduler):
+        """Save frame to disk and add to DB."""
+        captured_at = scheduler.get_ist_now()
+        self.capture_count += 1
+        
+        # Naming: D<CAMERA NO>_YYYYMMDD_HHMMSSMMM.jpg
+        cam_code = f"D{self.camera_number:02d}"
+        # %f gives microseconds, we take first 3 for milliseconds
+        timestamp = captured_at.strftime('%Y%m%d_%H%M%S%f')[:-3]
+        filename = f"{cam_code}_{timestamp}.jpg"
+        
+        from cctv_agent import config as agent_config
+        full_path = agent_config.QUEUE_DIR / filename
+        
+        # Write to disk
+        try:
+            with open(full_path, "wb") as f:
+                f.write(jpeg_bytes)
+            
+            # Add to local DB queue (minimal metadata for speed)
+            gcs_date_str = captured_at.strftime('%Y/%m/%d')
+            gcs_path = f"snapshots/{self.org_id}/{self.camera_id}/{gcs_date_str}/{filename}"
+            
+            self.db_manager.add_snapshot_to_queue(
+                camera_id=self.camera_id,
+                location_id=self.location_id,
+                org_id=self.org_id,
+                captured_at=captured_at,
+                local_file_path=f"queue/{filename}",
+                gcs_path=gcs_path,
+                file_size_bytes=len(jpeg_bytes),
+                resolution="high-res"
+            )
+            self.last_capture_time = captured_at
+        except Exception as e:
+            logger.error(f"Failed to process frame for {self.camera_id}: {e}")
 
     def _capture_frame(self, grabber: FrameGrabber):
-        """Capture a single frame and queue for upload."""
-        try:
-            logger.debug(f"Attempting to capture frame for {self.camera_id}")
-            success, jpeg_bytes = grabber.grab_frame()
-
-            if success and jpeg_bytes:
-                captured_at = datetime.utcnow()
-                self.capture_count += 1
-                
-                # Naming: D<CAMERA NO IN 2 DIGITS>_YYYYMMDD_HHMMSS_<index>.jpg
-                cam_code = f"D{self.camera_number:02d}"
-                timestamp = captured_at.strftime('%Y%m%d_%H%M%S')
-                filename = f"{cam_code}_{timestamp}_{self.capture_count}.jpg"
-                local_file_path = f"queue/{filename}"
-
-                # Full path for disk storage
-                from cctv_agent import config as agent_config
-                full_path = agent_config.QUEUE_DIR / filename
-                
-                # Ensure directory exists
-                agent_config.QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-                
-                # Write to disk
-                with open(full_path, "wb") as f:
-                    f.write(jpeg_bytes)
-                
-                # Add to local DB queue
-                gcs_date_str = captured_at.strftime('%Y/%m/%d')
-                gcs_path = f"snapshots/{self.org_id}/{self.camera_id}/{gcs_date_str}/{filename}"
-                
-                db_success = self.db_manager.add_snapshot_to_queue(
-                    camera_id=self.camera_id,
-                    location_id=self.location_id,
-                    org_id=self.org_id,
-                    captured_at=captured_at,
-                    local_file_path=local_file_path,
-                    gcs_path=gcs_path,
-                    file_size_bytes=len(jpeg_bytes),
-                    resolution="unknown"
-                )
-
-                if db_success:
-                    self.log_emitter.emit(
-                        "info",
-                        "capture",
-                        f"Captured and stored: {self.camera_id} ({len(jpeg_bytes)} bytes)",
-                        camera_id=self.camera_id
-                    )
-                else:
-                    logger.error(f"Failed to add snapshot to DB for {self.camera_id}")
-            else:
-                logger.warning(f"Snapshot capture returned no data for {self.camera_id}")
-                self.last_error = "No data returned"
-
-            self.last_capture_time = datetime.utcnow()
-
-        except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Error in capture frame for {self.camera_id}: {e}")
-            self.log_emitter.emit(
-                "error",
-                "capture",
-                f"Capture failed: {e}",
-                camera_id=self.camera_id
-            )
+        # Kept for backward compatibility if needed, but not used in 5FPS mode
+        pass
 
     def get_status(self) -> Dict:
         """Get worker status."""

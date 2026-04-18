@@ -4,9 +4,12 @@ Runs in background: capture, upload, heartbeat, discovery.
 """
 
 import logging
-import sys
 import signal
+import sys
 import threading
+import time
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 import queue
 from pathlib import Path
 
@@ -68,12 +71,12 @@ class CCTVAgentService:
             logger.error(f"Failed to initialize GCS: {e}")
             gcs_uploader = None
 
-        # Start upload worker
-        self.upload_worker = UploadWorker(
-            self.config_manager,
+        # Service 2 & 3: Tunnel Uploader & Cleanup (Delayed by 10 mins)
+        from cctv_agent.workers.tunnel_uploader import TunnelUploaderWorker
+        self.upload_worker = TunnelUploaderWorker(
             self.db_manager,
-            self.log_emitter,
-            gcs_uploader
+            vm_url="http://34.63.62.95:8000/upload",
+            buffer_minutes=10
         )
         self.upload_worker.start()
 
@@ -99,45 +102,82 @@ class CCTVAgentService:
         self.log_emitter.emit("info", "service", "CCTV Agent service started")
 
     def _start_snapshot_workers(self):
-        """Start a snapshot worker for each configured camera."""
-        cameras = self.config_manager.get_cameras()
+        """Start a snapshot worker for each configured camera and channel."""
+        config = self.config_manager.config
+        # Global interval for 5 FPS
+        interval = 0.2  # 5 FPS
+        
+        for device in config.get("devices", []):
+            channels = device.get("channels", [])
+            ip_address = device.get("ip")
+            location_id = device.get("location_id", "default")
+            org_id = config.get("org_id", "default")
 
-        for i, camera in enumerate(cameras, start=1):
-            if not camera.get("is_active", True):
-                continue
+            if channels:
+                for channel in channels:
+                    if not channel.get("enabled", True):
+                        continue
 
-            ip_address = camera.get("ip_address") or camera.get("ip")
-            camera_id = camera.get("id") or ip_address
-            location_id = camera.get("location_id", "unknown")
+                    ch_num = channel.get("channel_number", 1)
+                    channel_id = f"{ip_address}_ch{ch_num:02d}"
+                    
+                    # Prioritize Highest Resolution (Main Stream)
+                    rtsp_url = channel.get("main_stream_uri") or channel.get("sub_stream_uri") or channel.get("rtsp_url")
+                    
+                    worker = SnapshotWorker(
+                        camera_id=channel_id,
+                        location_id=location_id,
+                        org_id=org_id,
+                        ip_address=ip_address,
+                        rtsp_url=rtsp_url,
+                        interval_seconds=interval,
+                        jpeg_quality=85,
+                        snapshot_queue=None,
+                        log_emitter=None, # In simplified mode
+                        db_manager=self.db_manager,
+                        camera_number=ch_num
+                    )
+                    worker.start()
+                    self.snapshot_workers[channel_id] = worker
+                    logger.info(f"Started snapshot worker for {channel_id} (5 FPS, Main Stream)")
+                    
+                    # Check for gaps and initiate backfill if needed
+                    self._check_and_backfill(channel_id, org_id, location_id, ip_address, rtsp_url, ch_num)
+                    
+                    # Stagger startup to avoid overwhelming DVR
+                    time.sleep(1)
 
-            # Get RTSP URL with fallback to channels
-            rtsp_url = camera.get("rtsp_url")
-            if not rtsp_url and camera.get("channels"):
-                # Use first enabled channel as fallback
-                for channel in camera.get("channels"):
-                    if channel.get("enabled", True):
-                        rtsp_url = channel.get("sub_stream_uri")
-                        break
+    def _check_and_backfill(self, camera_id, org_id, location_id, ip_address, rtsp_url, camera_number):
+        """Check for gaps and start backfill worker if significant gap found."""
+        last_capture = self.db_manager.get_last_capture_time(camera_id)
+        if not last_capture:
+            return
 
-            # Check if camera has an explicit 'number' in config, else use index
-            camera_number = camera.get("number", i)
-
-            worker = SnapshotWorker(
+        from cctv_agent.core.schedule_manager import ScheduleManager
+        scheduler = ScheduleManager()
+        now_utc = datetime.utcnow()
+        
+        # If gap > 10 minutes, try to backfill
+        if now_utc - last_capture > timedelta(minutes=10):
+            # Limit backfill to last 24 hours for safety
+            start_backfill = max(last_capture, now_utc - timedelta(hours=24))
+            
+            from cctv_agent.workers.backfill_worker import BackfillWorker
+            backfill = BackfillWorker(
                 camera_id=camera_id,
+                org_id=org_id,
                 location_id=location_id,
-                org_id=self.config_manager.config.get("org_id", "unknown"),
                 ip_address=ip_address,
-                rtsp_url=rtsp_url or "",
-                interval_seconds=camera.get("snapshot_interval_seconds", 300),
-                jpeg_quality=camera.get("jpeg_quality", 85),
-                snapshot_queue=self.snapshot_queue,
-                log_emitter=self.log_emitter,
+                rtsp_base_url=rtsp_url,
+                start_time=start_backfill,
+                end_time=now_utc,
                 db_manager=self.db_manager,
-                camera_number=camera_number
+                camera_number=camera_number,
+                fps=5
             )
-            worker.start()
-            self.snapshot_workers[camera_id] = worker
-            logger.info(f"Started snapshot worker for camera {camera_id}")
+            # We don't start it immediately to avoid congestion
+            # In a real system, we'd queue these. For now, just start.
+            backfill.start()
 
     def stop(self):
         """Stop the service."""

@@ -24,12 +24,6 @@ class HeartbeatWorker:
     ):
         """
         Initialize heartbeat worker.
-
-        Args:
-            config_manager: ConfigManager instance
-            snapshot_workers: Dict of {camera_id: SnapshotWorker}
-            log_emitter: LogEmitter instance
-            interval_seconds: Heartbeat interval (default 30s)
         """
         self.config_manager = config_manager
         self.snapshot_workers = snapshot_workers
@@ -46,6 +40,12 @@ class HeartbeatWorker:
             self.thread = threading.Thread(target=self._run, daemon=True)
             self.thread.start()
             logger.info("Started heartbeat worker")
+            
+            # Initial local status write
+            try:
+                self._write_local_status({}, {})
+            except:
+                pass
 
     def stop(self):
         """Stop the heartbeat thread."""
@@ -61,15 +61,11 @@ class HeartbeatWorker:
             self.stop_event.wait(self.interval_seconds)
 
     def _send_heartbeat(self):
-        """Send heartbeat to backend."""
+        """Send heartbeat to backend and write local status."""
         try:
             config = self.config_manager.config
             api_url = config.get("api_url", "http://localhost:8765")
             api_key = config.get("api_key", "")
-
-            if not api_key:
-                logger.debug("No API key configured, skipping heartbeat")
-                return
 
             # Collect camera statuses
             camera_statuses = {}
@@ -88,6 +84,12 @@ class HeartbeatWorker:
                 "disk_percent": psutil.disk_usage("/").percent
             }
 
+            # Write local status for Tray App
+            self._write_local_status(camera_statuses, system_metrics)
+
+            if not api_key:
+                return
+
             payload = {
                 "agent_id": config.get("agent_id", "unknown"),
                 "camera_statuses": camera_statuses,
@@ -103,22 +105,43 @@ class HeartbeatWorker:
                 response.raise_for_status()
                 data = response.json()
 
-            # Sync camera settings (FPS/Interval)
+            # Sync camera settings
             if "cameras" in data:
                 self._sync_cameras(data["cameras"])
 
-            logger.debug(f"Heartbeat sent: {len(camera_statuses)} cameras")
-
         except Exception as e:
-            logger.warning(f"Heartbeat failed: {e}")
+            logger.warning(f"Heartbeat report issue: {e}")
+
+    def _write_local_status(self, camera_statuses, system_metrics, error=None):
+        """Write a simple status.json for the Tray Icon app."""
+        try:
+            import json
+            from cctv_agent import config as agent_config
+            status_file = agent_config.DATA_DIR / "status.json"
+            
+            is_capturing = any(s["status"] == "online" for s in camera_statuses.values())
+            
+            status_data = {
+                "timestamp": datetime.now().isoformat(),
+                "status": "running" if is_capturing else "stopped",
+                "camera_count": len(camera_statuses),
+                "online_count": sum(1 for s in camera_statuses.values() if s["status"] == "online"),
+                "cpu": system_metrics.get("cpu_percent", 0),
+                "mem": system_metrics.get("memory_percent", 0),
+                "last_error": error
+            }
+            
+            with open(status_file, "w") as f:
+                json.dump(status_data, f)
+        except Exception as e:
+            logger.error(f"Failed to write local status: {e}")
 
     def _sync_cameras(self, cameras):
-        """Update snapshot workers with latest settings from the server."""
+        """Update snapshot workers with latest settings."""
         for cam_data in cameras:
             cam_id = cam_data.get("id")
             if cam_id in self.snapshot_workers:
                 worker = self.snapshot_workers[cam_id]
                 new_interval = cam_data.get("snapshot_interval_seconds", 300)
                 if worker.interval_seconds != new_interval:
-                    logger.info(f"Syncing camera {cam_id}: updating interval to {new_interval}s")
                     worker.interval_seconds = new_interval
