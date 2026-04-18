@@ -32,3 +32,10 @@ PMIS_V2/
 Thumbs.db
 *.jpg
 *.png
+# Sensitive & Personal
+personal_ssh_key_git
+
+# Temp Discovery Data
+found_cameras.json
+verified_cameras.json
+onvif_stream_result.txt

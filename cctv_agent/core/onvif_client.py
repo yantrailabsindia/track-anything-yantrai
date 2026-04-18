@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from onvif import ONVIFCamera
 from wsdiscovery.discovery import ThreadedWSDiscovery as WSDiscovery
 
@@ -12,11 +13,15 @@ class ONVIFClient:
         self.password = password
         self.port = port
         self.device = None
+        # Resolve local WSDL directory
+        base_dir = Path(__file__).resolve().parent.parent
+        self.wsdl_dir = base_dir / "wsdl"
 
     def connect(self):
         try:
-            # Note: wsdl_dir might need to be specified depending on environment
-            self.device = ONVIFCamera(self.ip, self.port, self.login, self.password)
+            # Point to local WSDL directory if it exists
+            wsdl_path = str(self.wsdl_dir) if self.wsdl_dir.exists() else None
+            self.device = ONVIFCamera(self.ip, self.port, self.login, self.password, wsdl_dir=wsdl_path)
 
             # Check for time sync issues (common on hotspots)
             try:

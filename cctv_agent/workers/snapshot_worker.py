@@ -103,8 +103,10 @@ class SnapshotWorker:
             now = time.time()
 
             if now >= next_capture:
+                logger.info(f"Main loop: triggering capture for {self.camera_id}")
                 self._capture_frame(grabber)
                 next_capture = now + self.interval_seconds
+                logger.info(f"Main loop: next capture in {self.interval_seconds}s")
 
             # Sleep briefly to avoid busy-waiting
             self.stop_event.wait(min(1.0, next_capture - time.time()))
@@ -112,6 +114,7 @@ class SnapshotWorker:
     def _capture_frame(self, grabber: FrameGrabber):
         """Capture a single frame and queue for upload."""
         try:
+            logger.debug(f"Attempting to capture frame for {self.camera_id}")
             success, jpeg_bytes = grabber.grab_frame()
 
             if success and jpeg_bytes:
@@ -124,44 +127,54 @@ class SnapshotWorker:
                 filename = f"{cam_code}_{timestamp}_{self.capture_count}.jpg"
                 local_file_path = f"queue/{filename}"
 
-                # Queue for upload
-                self.snapshot_queue.put({
-                    "camera_id": self.camera_id,
-                    "location_id": self.location_id,
-                    "org_id": self.org_id,
-                    "captured_at": captured_at,
-                    "local_file_path": local_file_path,
-                    "jpeg_bytes": jpeg_bytes,
-                    "file_size_bytes": len(jpeg_bytes),
-                    "resolution": "unknown"
-                })
-
-                self.log_emitter.emit(
-                    "info",
-                    "capture",
-                    f"Captured: {self.camera_id} ({len(jpeg_bytes)} bytes)",
-                    camera_id=self.camera_id
+                # Full path for disk storage
+                from cctv_agent import config as agent_config
+                full_path = agent_config.QUEUE_DIR / filename
+                
+                # Ensure directory exists
+                agent_config.QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+                
+                # Write to disk
+                with open(full_path, "wb") as f:
+                    f.write(jpeg_bytes)
+                
+                # Add to local DB queue
+                gcs_date_str = captured_at.strftime('%Y/%m/%d')
+                gcs_path = f"snapshots/{self.org_id}/{self.camera_id}/{gcs_date_str}/{filename}"
+                
+                db_success = self.db_manager.add_snapshot_to_queue(
+                    camera_id=self.camera_id,
+                    location_id=self.location_id,
+                    org_id=self.org_id,
+                    captured_at=captured_at,
+                    local_file_path=local_file_path,
+                    gcs_path=gcs_path,
+                    file_size_bytes=len(jpeg_bytes),
+                    resolution="unknown"
                 )
-                self.last_capture_time = captured_at
-                self.last_error = None
 
+                if db_success:
+                    self.log_emitter.emit(
+                        "info",
+                        "capture",
+                        f"Captured and stored: {self.camera_id} ({len(jpeg_bytes)} bytes)",
+                        camera_id=self.camera_id
+                    )
+                else:
+                    logger.error(f"Failed to add snapshot to DB for {self.camera_id}")
             else:
-                error_msg = "Failed to grab frame"
-                self.last_error = error_msg
-                self.log_emitter.emit(
-                    "error",
-                    "capture",
-                    error_msg,
-                    camera_id=self.camera_id
-                )
+                logger.warning(f"Snapshot capture returned no data for {self.camera_id}")
+                self.last_error = "No data returned"
+
+            self.last_capture_time = datetime.utcnow()
 
         except Exception as e:
             self.last_error = str(e)
-            logger.error(f"Capture error for {self.camera_id}: {e}")
+            logger.error(f"Error in capture frame for {self.camera_id}: {e}")
             self.log_emitter.emit(
                 "error",
                 "capture",
-                f"Capture error: {e}",
+                f"Capture failed: {e}",
                 camera_id=self.camera_id
             )
 

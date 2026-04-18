@@ -106,8 +106,18 @@ class CCTVAgentService:
             if not camera.get("is_active", True):
                 continue
 
-            camera_id = camera.get("id") or camera.get("ip_address")
+            ip_address = camera.get("ip_address") or camera.get("ip")
+            camera_id = camera.get("id") or ip_address
             location_id = camera.get("location_id", "unknown")
+
+            # Get RTSP URL with fallback to channels
+            rtsp_url = camera.get("rtsp_url")
+            if not rtsp_url and camera.get("channels"):
+                # Use first enabled channel as fallback
+                for channel in camera.get("channels"):
+                    if channel.get("enabled", True):
+                        rtsp_url = channel.get("sub_stream_uri")
+                        break
 
             # Check if camera has an explicit 'number' in config, else use index
             camera_number = camera.get("number", i)
@@ -116,8 +126,8 @@ class CCTVAgentService:
                 camera_id=camera_id,
                 location_id=location_id,
                 org_id=self.config_manager.config.get("org_id", "unknown"),
-                ip_address=camera.get("ip_address"),
-                rtsp_url=camera.get("rtsp_url", ""),
+                ip_address=ip_address,
+                rtsp_url=rtsp_url or "",
                 interval_seconds=camera.get("snapshot_interval_seconds", 300),
                 jpeg_quality=camera.get("jpeg_quality", 85),
                 snapshot_queue=self.snapshot_queue,

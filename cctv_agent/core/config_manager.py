@@ -84,6 +84,10 @@ class ConfigManager:
         self.config["devices"].append(device_info)
         self.save_config()
 
+    def get_cameras(self):
+        """Alias for get_devices to match service expected name."""
+        return self.config.get("devices", [])
+
     def get_devices(self):
         return self.config.get("devices", [])
 

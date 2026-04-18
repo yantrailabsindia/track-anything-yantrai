@@ -12,9 +12,10 @@ CREATE TABLE IF NOT EXISTS camera_locations (
     timezone VARCHAR DEFAULT 'UTC',
     is_active BOOLEAN DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(org_id) REFERENCES organizations(id),
-    INDEX ix_camera_location_org (org_id)
+    FOREIGN KEY(org_id) REFERENCES organizations(id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_camera_location_org ON camera_locations(org_id);
 
 -- Cameras Table
 CREATE TABLE IF NOT EXISTS cameras (
@@ -32,18 +33,20 @@ CREATE TABLE IF NOT EXISTS cameras (
     snapshot_interval_seconds INTEGER DEFAULT 300,
     jpeg_quality INTEGER DEFAULT 85,
     resolution_profile VARCHAR DEFAULT 'sub',
+    frame_rate_fps INTEGER DEFAULT 10,
     status VARCHAR DEFAULT 'offline',
     last_seen_at TIMESTAMP,
     is_active BOOLEAN DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(location_id) REFERENCES camera_locations(id),
-    FOREIGN KEY(org_id) REFERENCES organizations(id),
-    INDEX ix_camera_org_location (org_id, location_id)
+    FOREIGN KEY(org_id) REFERENCES organizations(id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_camera_org_location ON cameras(org_id, location_id);
 
 -- CCTV Snapshots Table
 CREATE TABLE IF NOT EXISTS cctv_snapshots (
-    id INTEGER NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    id INTEGER NOT NULL PRIMARY KEY,
     camera_id VARCHAR NOT NULL,
     location_id VARCHAR NOT NULL,
     org_id VARCHAR NOT NULL,
@@ -57,11 +60,12 @@ CREATE TABLE IF NOT EXISTS cctv_snapshots (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(camera_id) REFERENCES cameras(id),
     FOREIGN KEY(location_id) REFERENCES camera_locations(id),
-    FOREIGN KEY(org_id) REFERENCES organizations(id),
-    INDEX ix_snapshot_org_location_camera_date_hour (org_id, location_id, camera_id, date_bucket, hour_bucket),
-    INDEX ix_snapshot_org_timestamp (org_id, captured_at),
-    INDEX ix_snapshot_captured_at (captured_at)
+    FOREIGN KEY(org_id) REFERENCES organizations(id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_snapshot_org_location_camera_date_hour ON cctv_snapshots(org_id, location_id, camera_id, date_bucket, hour_bucket);
+CREATE INDEX IF NOT EXISTS ix_snapshot_org_timestamp ON cctv_snapshots(org_id, captured_at);
+CREATE INDEX IF NOT EXISTS ix_snapshot_captured_at ON cctv_snapshots(captured_at);
 
 -- CCTV Agent Registrations Table
 CREATE TABLE IF NOT EXISTS cctv_agent_registrations (
@@ -75,7 +79,8 @@ CREATE TABLE IF NOT EXISTS cctv_agent_registrations (
     config JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(org_id) REFERENCES organizations(id),
-    FOREIGN KEY(location_id) REFERENCES camera_locations(id),
-    INDEX ix_agent_org (org_id),
-    INDEX ix_agent_api_key (api_key)
+    FOREIGN KEY(location_id) REFERENCES camera_locations(id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_agent_org ON cctv_agent_registrations(org_id);
+CREATE INDEX IF NOT EXISTS ix_agent_api_key ON cctv_agent_registrations(api_key);
