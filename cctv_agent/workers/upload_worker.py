@@ -7,11 +7,12 @@ import threading
 import logging
 import time
 import os
+import base64
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import httpx
-import json
 
 from cctv_agent import config as agent_config
 from cctv_agent.services.gcs_uploader import GCSUploader
@@ -92,8 +93,8 @@ class UploadWorker:
             logger.info("Starting batch upload...")
             self.log_emitter.emit("info", "upload", "Starting batch upload")
 
-            # Get pending snapshots
-            pending = self.db_manager.get_pending_snapshots(limit=100)
+            # Get pending snapshots (includes retryable failed ones)
+            pending = self.db_manager.get_pending_snapshots(limit=100, max_retries=3)
 
             if not pending:
                 logger.debug("No pending snapshots to upload")
@@ -116,6 +117,12 @@ class UploadWorker:
                 if self._upload_snapshot(snapshot):
                     success_count += 1
                     self.db_manager.mark_uploaded(snapshot["id"])
+                else:
+                    # Mark as failed and increment retry count
+                    new_retry_count = snapshot.get("retry_count", 0) + 1
+                    self.db_manager.mark_failed(snapshot["id"], "Upload failed or file missing", new_retry_count)
+                    if new_retry_count >= 3:
+                        logger.warning(f"Snapshot {snapshot['id']} exceeded max retries, giving up")
 
             self.log_emitter.emit(
                 "info",
@@ -137,35 +144,40 @@ class UploadWorker:
         camera_id = snapshot["camera_id"]
         local_file_path = snapshot["local_file_path"]
         gcs_path = snapshot["gcs_path"]
-        file_size = snapshot["file_size_bytes"]
-
+        
         try:
-            # Read JPEG from disk
-            full_path = agent_config.QUEUE_DIR / local_file_path.replace("queue/", "")
+            # Resolve full path robustly
+            # local_file_path is usually "queue/filename.jpg"
+            filename = local_file_path.replace("queue/", "")
+            full_path = agent_config.QUEUE_DIR / filename
+            
             if not full_path.exists():
-                logger.warning(f"Snapshot file not found: {full_path}")
+                logger.warning(f"Snapshot file not found at {full_path}. Marking as uploaded to clear queue.")
                 return False
 
             with open(full_path, "rb") as f:
                 jpeg_bytes = f.read()
 
-            # Upload to GCS
-            if not self.gcs_uploader.upload_snapshot(gcs_path, jpeg_bytes):
-                logger.warning(f"GCS upload failed for {gcs_path}")
+            # 1. Upload to GCS (Optional feature, but let's keep it working if configured)
+            gcs_success = True
+            if self.gcs_uploader and self.gcs_uploader.bucket_name:
+                gcs_success = self.gcs_uploader.upload_snapshot(gcs_path, jpeg_bytes)
+                if gcs_success:
+                    logger.debug(f"Uploaded to GCS: {gcs_path}")
+                else:
+                    logger.warning(f"GCS upload failed for {gcs_path}")
+
+            # 2. Report metadata + Image to Backend (Primary local VM storage)
+            # Pass jpeg_bytes directly to avoid re-reading from disk
+            if not self._report_metadata(snapshot, jpeg_bytes):
+                logger.warning(f"Backend metadata report failed for {camera_id}")
                 return False
 
-            logger.debug(f"Uploaded to GCS: {gcs_path}")
-
-            # Report metadata to backend
-            if not self._report_metadata(snapshot):
-                logger.warning(f"Backend metadata report failed for {camera_id}")
-                # Continue anyway - GCS has the file
-                return True
-
-            # Delete local file
+            # Delete local file only after successful backend report
             try:
-                full_path.unlink()
-                logger.debug(f"Deleted local file: {full_path}")
+                if full_path.exists():
+                    full_path.unlink()
+                    logger.debug(f"Deleted local file: {full_path}")
             except Exception as e:
                 logger.warning(f"Failed to delete local file {full_path}: {e}")
 
@@ -175,38 +187,58 @@ class UploadWorker:
             logger.error(f"Snapshot upload failed for {camera_id}: {e}")
             return False
 
-    def _report_metadata(self, snapshot: dict) -> bool:
-        """Report snapshot metadata to backend."""
+    def _report_metadata(self, snapshot: dict, jpeg_bytes: bytes) -> bool:
+        """Report snapshot metadata and image to backend for storage on VM."""
         try:
-            config = self.config_manager.config
-            api_url = config.get("api_url", "http://localhost:8765")
-            api_key = config.get("api_key", "")
-
+            user_info = self.config_manager.get_user_info()
+            api_url = user_info.get("api_url") or agent_config.API_URL
+            
+            cloud = self.config_manager.get_cloud_settings()
+            api_key = cloud.get("api_key")
+            
+            # Use user_id from snapshot OR fallback to config
+            user_id = snapshot.get("user_id") or self.config_manager.get_user_info().get("user_id")
+            
             if not api_key:
                 logger.warning("No API key configured, skipping metadata report")
                 return False
+                
+            if not user_id or user_id == "unknown":
+                logger.warning(f"Invalid user_id '{user_id}' for snapshot {snapshot['id']}. Cannot upload.")
+                return False
+
+            # Base64 encode the image
+            image_data = base64.b64encode(jpeg_bytes).decode("utf-8")
 
             payload = {
                 "camera_id": snapshot["camera_id"],
-                "captured_at": snapshot["captured_at"].isoformat(),
-                "gcs_path": snapshot["gcs_path"],
-                "file_size_bytes": snapshot["file_size_bytes"],
-                "resolution": snapshot.get("resolution")
+                "captured_at": snapshot["captured_at"], # datetime object or ISO string is handled by httpx/json
+                "user_id": user_id,
+                "image_data": image_data,
+                "gcs_path": snapshot.get("gcs_path") or "",
+                "file_size_bytes": len(jpeg_bytes),
+                "resolution": snapshot.get("resolution") or "unknown"
             }
 
-            with httpx.Client(timeout=10.0) as client:
+            # Handle datetime serialization if it's an object
+            if isinstance(payload["captured_at"], datetime):
+                payload["captured_at"] = payload["captured_at"].isoformat()
+
+            with httpx.Client(timeout=60.0) as client:
                 response = client.post(
                     f"{api_url}/api/cctv/snapshots",
                     json=payload,
                     params={"api_key": api_key}
                 )
-                response.raise_for_status()
-
-            logger.debug(f"Reported metadata for snapshot {snapshot['id']}")
+                if response.status_code != 200:
+                    logger.error(f"Backend rejected snapshot: {response.status_code} - {response.text}")
+                    return False
+                    
+            logger.debug(f"Reported metadata and image for snapshot {snapshot['id']}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to report metadata: {e}")
+            logger.error(f"Failed to report metadata to backend: {e}")
             return False
 
     def get_status(self) -> dict:

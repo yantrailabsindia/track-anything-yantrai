@@ -7,11 +7,28 @@ class ConfigManager:
     """
     Manages application configuration (JSON).
     """
-    DEFAULT_PATH = Path(os.path.expanduser("~/CCTVViewer/config.json"))
+    DEFAULT_PATH = Path(os.path.expanduser("~/CCTVAgent/config.json"))
+    LEGACY_PATH = Path(os.path.expanduser("~/CCTVViewer/config.json"))
 
     def __init__(self, config_path=None):
         self.config_path = Path(config_path) if config_path else self.DEFAULT_PATH
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Migrate legacy config (devices/settings only - NOT credentials)
+        # This forces re-login when switching to the new config location,
+        # ensuring users re-authenticate with the current backend.
+        if not self.config_path.exists() and self.LEGACY_PATH.exists():
+            try:
+                with open(self.LEGACY_PATH, "r") as f:
+                    legacy = json.load(f)
+                # Clear user credentials - force fresh login
+                legacy["user"] = {"user_id": None, "token": None, "api_url": ""}
+                with open(self.config_path, "w") as f:
+                    json.dump(legacy, f, indent=4)
+                logging.info(f"Migrated legacy config (credentials cleared) from {self.LEGACY_PATH}")
+            except Exception as e:
+                logging.error(f"Failed to migrate legacy config: {e}")
+
         self.config = self.load_config()
 
     def load_config(self):
