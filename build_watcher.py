@@ -1,5 +1,5 @@
 """
-ProMe & CCTV Agent Auto-Build Watcher
+ProMe Desktop Agent Auto-Build Watcher
 Monitors Python files and rebuilds executables when changes are detected
 """
 from watchdog.observers import Observer
@@ -23,8 +23,6 @@ class AgentChangeHandler(FileSystemEventHandler):
             target = None
             if 'desktop' in norm_path:
                 target = 'ProMe'
-            elif 'cctv_agent' in norm_path:
-                target = 'CCTVAgent'
             
             if not target:
                 return
@@ -45,9 +43,7 @@ class AgentChangeHandler(FileSystemEventHandler):
                 cmd = ['pyinstaller', 'ProMe.spec', '--noconfirm']
                 cwd = os.getcwd()
             else:
-                # CCTVAgent build is inside its directory
-                cmd = ['pyinstaller', 'build.spec', '--noconfirm']
-                cwd = os.path.join(os.getcwd(), 'cctv_agent')
+                return
 
             result = subprocess.run(
                 cmd,
@@ -59,15 +55,6 @@ class AgentChangeHandler(FileSystemEventHandler):
             
             if result.returncode == 0:
                 print(f'[SUCCESS] {target}.exe rebuilt!')
-                # For CCTVAgent, we might need to copy it to root dist if spec doesn't
-                if target == 'CCTVAgent':
-                    src = os.path.join(cwd, 'dist', 'CCTVAgent.exe')
-                    dest = os.path.join(os.getcwd(), 'dist', 'CCTVAgent.exe')
-                    if os.path.exists(src):
-                        os.makedirs(os.path.dirname(dest), exist_ok=True)
-                        import shutil
-                        shutil.copy2(src, dest)
-                        print(f'[COPIED] CCTVAgent.exe -> dist/CCTVAgent.exe')
             else:
                 print(f'[ERROR] {target} build failed:')
                 if result.stderr:
@@ -86,16 +73,14 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 observer = Observer()
 handler = AgentChangeHandler()
 observer.schedule(handler, path='desktop', recursive=True)
-observer.schedule(handler, path='cctv_agent', recursive=True)
 observer.start()
 
 print('=' * 50)
-print('  ProMe & CCTV Auto-Build Watcher')
+print('  ProMe Auto-Build Watcher')
 print('=' * 50)
 print()
 print('Watching for changes in:')
 print('  - desktop\\**\\*.py    -> Rebuilds ProMe.exe')
-print('  - cctv_agent\\**\\*.py -> Rebuilds CCTVAgent.exe')
 print()
 print('PyInstaller will rebuild automatically when files change.')
 print('Press Ctrl+C to stop.')
